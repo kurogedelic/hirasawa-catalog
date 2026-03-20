@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>hirasawa-catalog</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #fafafa;
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            overflow: hidden;
+        }
+
+        header {
+            background: white;
+            padding: 20px 30px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        header h1 {
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .controls {
+            padding: 20px 30px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        .search-box {
+            width: 100%;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        .search-box:focus {
+            outline: none;
+            border-color: #333;
+        }
+
+        .filter-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        .filter-btn {
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .filter-btn.active {
+            background: #333;
+            color: white;
+            border-color: #333;
+        }
+
+        .sort-info {
+            color: #999;
+            font-size: 13px;
+            text-align: right;
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: #fafafa;
+            position: sticky;
+            top: 0;
+        }
+
+        th {
+            padding: 10px 15px;
+            text-align: left;
+            font-weight: 500;
+            font-size: 13px;
+            color: #666;
+            cursor: pointer;
+            user-select: none;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        th:hover {
+            background: #f5f5f5;
+        }
+
+        th::after {
+            content: ' ↕';
+            opacity: 0.2;
+        }
+
+        th.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+        }
+
+        th.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
+        }
+
+        td {
+            padding: 10px 15px;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
+        }
+
+        tbody tr:hover {
+            background: #fafafa;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 500;
+            margin-left: 5px;
+        }
+
+        .badge-single {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge-version {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .stats {
+            padding: 15px 30px;
+            background: white;
+            text-align: center;
+            color: #999;
+            font-size: 13px;
+            border-top: 1px solid #e5e5e5;
+        }
+
+        @media (max-width: 768px) {
+            header {
+                padding: 15px 20px;
+            }
+
+            header h1 {
+                font-size: 1.3em;
+            }
+
+            .controls {
+                padding: 15px 20px;
+            }
+
+            th, td {
+                padding: 8px 10px;
+                font-size: 13px;
+            }
+
+            .hide-mobile {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>hirasawa-catalog</h1>
+        </header>
+
+        <div class="controls">
+            <input type="text" id="searchInput" class="search-box" placeholder="曲名、アルバム名で検索...">
+
+            <div class="filter-buttons">
+                <button class="filter-btn active" data-filter="all">すべて</button>
+                <button class="filter-btn" data-filter="album">アルバムのみ</button>
+                <button class="filter-btn" data-filter="single">シングルのみ</button>
+            </div>
+
+            <div class="sort-info" id="sortInfo">
+                <span id="totalCount">0</span>件表示
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table id="songsTable">
+                <thead>
+                    <tr>
+                        <th data-sort="release_date">発売日</th>
+                        <th data-sort="work_id">ID</th>
+                        <th data-sort="title">タイトル</th>
+                        <th data-sort="title_en">英語タイトル</th>
+                        <th data-sort="album">アルバム</th>
+                        <th data-sort="artist">アーティスト</th>
+                        <th class="hide-mobile">カタログ</th>
+                    </tr>
+                </thead>
+                <tbody id="songsTableBody">
+                </tbody>
+            </table>
+        </div>
+
+        <div class="stats" id="stats"></div>
+    </div>
+
+    <script>
+        let songsData = [];
+        let currentFilter = 'all';
+        let currentSort = { column: 'release_date', direction: 'desc' };
+
+        // データを読み込む
+        async function loadData() {
+            try {
+                const response = await fetch('data/p-model-hirasawa-songs-database - song_database.json');
+                songsData = await response.json();
+                applyFilterAndSort();
+            } catch (error) {
+                console.error('データ読み込みエラー:', error);
+                document.getElementById('stats').textContent = 'データの読み込みに失敗しました';
+            }
+        }
+
+        // フィルターとソートを適用
+        function applyFilterAndSort() {
+            let filtered = [...songsData];
+
+            // フィルター適用
+            if (currentFilter === 'single') {
+                filtered = filtered.filter(song => song.is_single);
+            } else if (currentFilter === 'album') {
+                filtered = filtered.filter(song => !song.is_single);
+            }
+
+            // 検索適用
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            if (searchTerm) {
+                filtered = filtered.filter(song =>
+                    (song.title && song.title.toLowerCase().includes(searchTerm)) ||
+                    (song.title_en && song.title_en.toLowerCase().includes(searchTerm)) ||
+                    (song.album && song.album.toLowerCase().includes(searchTerm)) ||
+                    (song.work_id && song.work_id.toLowerCase().includes(searchTerm))
+                );
+            }
+
+            // ソート適用
+            filtered.sort((a, b) => {
+                let aVal = a[currentSort.column] || '';
+                let bVal = b[currentSort.column] || '';
+
+                if (currentSort.column === 'release_date') {
+                    aVal = new Date(aVal);
+                    bVal = new Date(bVal);
+                }
+
+                if (aVal < bVal) return currentSort.direction === 'asc' ? -1 : 1;
+                if (aVal > bVal) return currentSort.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            renderTable(filtered);
+            updateStats(filtered);
+        }
+
+        // テーブルを描画
+        function renderTable(songs) {
+            const tbody = document.getElementById('songsTableBody');
+            tbody.innerHTML = songs.map(song => `
+                <tr>
+                    <td>${song.release_date || ''}</td>
+                    <td><code>${song.work_id || ''}</code></td>
+                    <td>
+                        ${song.title || ''}
+                        ${song.is_single ? '<span class="badge badge-single">S</span>' : ''}
+                        ${song.is_version ? '<span class="badge badge-version">V</span>' : ''}
+                    </td>
+                    <td>${song.title_en || ''}</td>
+                    <td>${song.album || ''}</td>
+                    <td>${song.artist || ''}</td>
+                    <td class="hide-mobile">${song.catalog_number || ''}</td>
+                </tr>
+            `).join('');
+
+            document.getElementById('totalCount').textContent = songs.length;
+        }
+
+        // 統計情報を更新
+        function updateStats(filteredSongs) {
+            const albums = new Set(filteredSongs.filter(s => !s.is_single).map(s => s.album)).size;
+            const singles = new Set(filteredSongs.filter(s => s.is_single).map(s => s.album)).size;
+            document.getElementById('stats').textContent =
+                `全${songsData.length}曲 | アルバム${albums}枚 | シングル${singles}枚`;
+        }
+
+        // イベントリスナー設定
+        document.getElementById('searchInput').addEventListener('input', applyFilterAndSort);
+
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentFilter = btn.dataset.filter;
+                applyFilterAndSort();
+            });
+        });
+
+        document.querySelectorAll('th[data-sort]').forEach(th => {
+            th.addEventListener('click', () => {
+                const column = th.dataset.sort;
+
+                // ソート方向を切り替え
+                if (currentSort.column === column) {
+                    currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.column = column;
+                    currentSort.direction = 'asc';
+                }
+
+                // 視覚的フィードバック
+                document.querySelectorAll('th').forEach(t => {
+                    t.classList.remove('sort-asc', 'sort-desc');
+                });
+                th.classList.add(currentSort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+
+                applyFilterAndSort();
+            });
+        });
+
+        // 初期化
+        loadData();
+    </script>
+</body>
+</html>
