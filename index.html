@@ -76,6 +76,17 @@
             border-color: #333;
         }
 
+        .artist-filter {
+            margin-bottom: 15px;
+        }
+
+        .artist-filter select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            font-size: 14px;
+            min-width: 200px;
+        }
+
         .sort-info {
             color: #999;
             font-size: 13px;
@@ -89,12 +100,14 @@
         table {
             width: 100%;
             border-collapse: collapse;
+            table-layout: fixed;
         }
 
         thead {
             background: #fafafa;
             position: sticky;
             top: 0;
+            z-index: 10;
         }
 
         th {
@@ -107,6 +120,14 @@
             user-select: none;
             border-bottom: 1px solid #e5e5e5;
         }
+
+        th:nth-child(1) { width: 110px; }  /* 発売日 */
+        th:nth-child(2) { width: 100px; }  /* ID */
+        th:nth-child(3) { width: auto; }   /* タイトル */
+        th:nth-child(4) { width: auto; }   /* 英語タイトル */
+        th:nth-child(5) { width: auto; }   /* アルバム */
+        th:nth-child(6) { width: 140px; }  /* アーティスト */
+        th:nth-child(7) { width: 100px; }  /* カタログ */
 
         th:hover {
             background: #f5f5f5;
@@ -156,6 +177,21 @@
             color: #0c5460;
         }
 
+        .version-links {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        .version-links a {
+            color: #666;
+            text-decoration: none;
+        }
+
+        .version-links a:hover {
+            text-decoration: underline;
+        }
+
         .stats {
             padding: 15px 30px;
             background: white;
@@ -198,6 +234,12 @@
         <div class="controls">
             <input type="text" id="searchInput" class="search-box" placeholder="曲名、アルバム名で検索...">
 
+            <div class="artist-filter">
+                <select id="artistFilter">
+                    <option value="">すべてのアーティスト</option>
+                </select>
+            </div>
+
             <div class="filter-buttons">
                 <button class="filter-btn active" data-filter="all">すべて</button>
                 <button class="filter-btn" data-filter="album">アルバムのみ</button>
@@ -234,12 +276,16 @@
         let songsData = [];
         let currentFilter = 'all';
         let currentSort = { column: 'release_date', direction: 'desc' };
+        let currentArtistFilter = '';
+        let songVersionMap = new Map(); // 曲のバージョン情報を管理
 
         // データを読み込む
         async function loadData() {
             try {
                 const response = await fetch('data/p-model-hirasawa-songs-database - song_database.json');
                 songsData = await response.json();
+                buildVersionMap();
+                populateArtistFilter();
                 applyFilterAndSort();
             } catch (error) {
                 console.error('データ読み込みエラー:', error);
@@ -247,9 +293,51 @@
             }
         }
 
+        // 曲のバージョンマップを構築
+        function buildVersionMap() {
+            songVersionMap.clear();
+            const titleGroups = new Map();
+
+            songsData.forEach(song => {
+                if (!song.title) return;
+                const key = song.title.toLowerCase();
+                if (!titleGroups.has(key)) {
+                    titleGroups.set(key, []);
+                }
+                titleGroups.get(key).push(song);
+            });
+
+            // タイトルが同じ曲をグループ化
+            titleGroups.forEach((songs, title) => {
+                if (songs.length > 1) {
+                    songs.forEach(song => {
+                        songVersionMap.set(song.work_id, songs.filter(s => s.work_id !== song.work_id));
+                    });
+                }
+            });
+        }
+
+        // アーティストフィルターを生成
+        function populateArtistFilter() {
+            const artists = [...new Set(songsData.map(s => s.artist).filter(Boolean))].sort();
+            const select = document.getElementById('artistFilter');
+            select.innerHTML = '<option value="">すべてのアーティスト</option>';
+            artists.forEach(artist => {
+                const option = document.createElement('option');
+                option.value = artist;
+                option.textContent = artist;
+                select.appendChild(option);
+            });
+        }
+
         // フィルターとソートを適用
         function applyFilterAndSort() {
             let filtered = [...songsData];
+
+            // アーティストフィルター適用
+            if (currentArtistFilter) {
+                filtered = filtered.filter(song => song.artist === currentArtistFilter);
+            }
 
             // フィルター適用
             if (currentFilter === 'single') {
@@ -291,23 +379,47 @@
         // テーブルを描画
         function renderTable(songs) {
             const tbody = document.getElementById('songsTableBody');
-            tbody.innerHTML = songs.map(song => `
-                <tr>
+            tbody.innerHTML = songs.map(song => {
+                const versions = songVersionMap.get(song.work_id) || [];
+                const versionLinks = versions.length > 0
+                    ? `<div class="version-links">別Ver: ${versions.map(v => `<a href="#" data-work-id="${v.work_id}" class="version-link">${v.work_id}</a>`).join(', ')}</div>`
+                    : '';
+
+                return `
+                <tr data-work-id="${song.work_id}">
                     <td>${song.release_date || ''}</td>
                     <td><code>${song.work_id || ''}</code></td>
                     <td>
                         ${song.title || ''}
                         ${song.is_single ? '<span class="badge badge-single">S</span>' : ''}
                         ${song.is_version ? '<span class="badge badge-version">V</span>' : ''}
+                        ${versionLinks}
                     </td>
                     <td>${song.title_en || ''}</td>
                     <td>${song.album || ''}</td>
                     <td>${song.artist || ''}</td>
                     <td class="hide-mobile">${song.catalog_number || ''}</td>
                 </tr>
-            `).join('');
+                `;
+            }).join('');
 
             document.getElementById('totalCount').textContent = songs.length;
+
+            // バージョンリンクのイベントリスナーを設定
+            document.querySelectorAll('.version-link').forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const workId = e.target.dataset.workId;
+                    const row = document.querySelector(`tr[data-work-id="${workId}"]`);
+                    if (row) {
+                        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        row.style.background = '#fff3cd';
+                        setTimeout(() => {
+                            row.style.background = '';
+                        }, 2000);
+                    }
+                });
+            });
         }
 
         // 統計情報を更新
@@ -320,6 +432,11 @@
 
         // イベントリスナー設定
         document.getElementById('searchInput').addEventListener('input', applyFilterAndSort);
+
+        document.getElementById('artistFilter').addEventListener('change', (e) => {
+            currentArtistFilter = e.target.value;
+            applyFilterAndSort();
+        });
 
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.addEventListener('click', () => {
